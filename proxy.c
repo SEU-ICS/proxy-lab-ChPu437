@@ -2,7 +2,7 @@
   Proxy Lab
   TODOs:
     Part #1:
-      [] implement a proxy to accept incoming connections
+      [*] implement a proxy to accept incoming connections
       [] read and parse the HTTP request
       [] forward the request to the end server
       [] read the server's response
@@ -32,9 +32,14 @@ typedef struct
 
 http_request *new_request()
 {
+  http_request *request = malloc(sizeof(http_request));
+  request->method = malloc(MAXLINE);
+  request->root = malloc(MAXLINE);
+  request->directory = malloc(MAXLINE);
+  return request;
 }
 
-http_request *free_request(http_request *request)
+void free_request(http_request *request)
 {
   free(request->method);
   free(request->root);

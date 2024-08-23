@@ -86,33 +86,44 @@ int main(int argc, char **argv)
     Getnameinfo((SA *)&clientaddr, clientlen, client_hostname,
                 MAXLINE, client_port, MAXLINE, 0);
     printf("Connected to (%s, %s)\n", client_hostname, client_port);
-
-    // do proxy work
-
-    // // allocate space for storing request
-    http_request *request = new_request();
-    // // parse incoming request
-    parse_request(connfd, request);
-
-    // // chek if request is cached
-    if (check_if_cached(connfd, request))
+#ifdef MULTI_CLIENT
+    if (Fork() == 0)
     {
-      // if yes, send cached response
-      cache_response(connfd);
-    }
-    else
-    {
-      // if no, forward request to server
-      forward_request(connfd, request);
-      forward_response(connfd);
-    }
+      Close(listenfd); // we dont want to use listenfd in child process
+#endif
+      // do proxy work
 
-    // // free request
-    free_request(request);
+      // // allocate space for storing request
+      http_request *request = new_request();
+      // // parse incoming request
+      parse_request(connfd, request);
 
-    // close connection
-    Close(connfd);
+      // // chek if request is cached
+      if (check_if_cached(connfd, request))
+      {
+        // if yes, send cached response
+        cache_response(connfd);
+      }
+      else
+      {
+        // if no, forward request to server
+        forward_request(connfd, request);
+        forward_response(connfd);
+      }
+
+      // // free request
+      free_request(request);
+
+      // close connection
+      Close(connfd);
+#ifdef MULTI_CLIENT
+      exit(0);
+#endif
+    }
+#ifdef MULTI_CLIENT
   }
+  Close(connfd); // we dont want to use connfd in parent process
+#endif
 
   return 0;
 }

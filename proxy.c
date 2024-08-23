@@ -47,18 +47,22 @@ void free_request(http_request *request)
   free(request);
 }
 
-void parse_request(int connfd, http_request *request) {}
+void wait_request(int connfd, http_request *request)
+{
+}
 
-int check_if_cached(int connfd, http_request *request)
+void parse_request(http_request *request)
+{
+}
+
+int check_if_cached(http_request *request)
 {
   return 0;
 }
 
-void cache_response(int connfd) {}
+void cache_response(int connfd, http_request *request) {}
 
-void forward_request(int connfd, http_request *request) {}
-
-void forward_response(int connfd) {}
+void forward_response(int connfd, http_request *request) {}
 
 int main(int argc, char **argv)
 {
@@ -101,19 +105,19 @@ int main(int argc, char **argv)
       // // allocate space for storing request
       http_request *request = new_request();
       // // parse incoming request
-      parse_request(connfd, request);
+      wait_request(connfd, request);
+      parse_request(request);
 
       // // chek if request is cached
-      if (check_if_cached(connfd, request))
+      if (check_if_cached(request))
       {
         // if yes, send cached response
-        cache_response(connfd);
+        cache_response(connfd, request);
       }
       else
       {
         // if no, forward request to server
-        forward_request(connfd, request);
-        forward_response(connfd);
+        forward_response(connfd, request);
       }
 
       // // free request

@@ -47,22 +47,45 @@ void free_request(http_request *request)
   free(request);
 }
 
-void wait_request(int connfd, http_request *request)
+// wait and parse incoming request
+void parse_request(int connfd, http_request *request)
 {
 }
 
-void parse_request(http_request *request)
-{
-}
-
+// check if request is cached
 int check_if_cached(http_request *request)
 {
   return 0;
 }
 
+// forward cached response to client
 void cache_response(int connfd, http_request *request) {}
 
+// forward request to server and forward response to client
 void forward_response(int connfd, http_request *request) {}
+
+void do_proxy_work(int connfd)
+{
+  // // allocate space for storing request
+  http_request *request = new_request();
+  // // parse incoming request
+  parse_request(connfd, request);
+
+  // // chek if request is cached
+  if (check_if_cached(request))
+  {
+    // if yes, send cached response
+    cache_response(connfd, request);
+  }
+  else
+  {
+    // if no, forward request to server
+    forward_response(connfd, request);
+  }
+
+  // // free request
+  free_request(request);
+}
 
 int main(int argc, char **argv)
 {
@@ -95,44 +118,15 @@ int main(int argc, char **argv)
     Getnameinfo((SA *)&clientaddr, clientlen, client_hostname,
                 MAXLINE, client_port, MAXLINE, 0);
     printf("Connected to (%s, %s)\n", client_hostname, client_port);
-#ifdef MULTI_CLIENT
-    if (Fork() == 0)
-    {
-      Close(listenfd); // we dont want to use listenfd in child process
+
+#ifndef MULTI_CLIENT
+    // do proxy work
+    do_proxy_work(connfd);
+
+    // close connection
+    Close(connfd);
 #endif
-      // do proxy work
-
-      // // allocate space for storing request
-      http_request *request = new_request();
-      // // parse incoming request
-      wait_request(connfd, request);
-      parse_request(request);
-
-      // // chek if request is cached
-      if (check_if_cached(request))
-      {
-        // if yes, send cached response
-        cache_response(connfd, request);
-      }
-      else
-      {
-        // if no, forward request to server
-        forward_response(connfd, request);
-      }
-
-      // // free request
-      free_request(request);
-
-      // close connection
-      Close(connfd);
-#ifdef MULTI_CLIENT
-      exit(0);
-#endif
-    }
-#ifdef MULTI_CLIENT
   }
-  Close(connfd); // we dont want to use connfd in parent process
-#endif
 
   return 0;
 }

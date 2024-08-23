@@ -1,3 +1,18 @@
+/*
+  Proxy Lab
+  TODOs:
+    Part #1:
+      [] implement a proxy to accept incoming connections
+      [] read and parse the HTTP request
+      [] forward the request to the end server
+      [] read the server's response
+      [] forward the response to the client
+    Part #2:
+      [] deal with multiple connections
+    Part #3:
+      [] implement a cache
+ */
+
 #include <stdio.h>
 
 /* Recommended max cache and object sizes */
@@ -9,6 +24,6 @@ static const char *user_agent_hdr = "User-Agent: Mozilla/5.0 (X11; Linux x86_64;
 
 int main()
 {
-    printf("%s", user_agent_hdr);
-    return 0;
+  printf("%s", user_agent_hdr);
+  return 0;
 }

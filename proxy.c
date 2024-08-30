@@ -199,8 +199,12 @@ int parse_request(int connfd, http_request_t *request)
 #ifdef HAS_CACHE
 typedef struct
 {
-
+  http_request_t request;
+  void *response;
+  int size;
+  time_t timestamp;
 } cache_t;
+const int cache_t_size = sizeof(cache_t) + MAX_OBJECT_SIZE;
 void *cache_pool;
 
 pthread_mutex_t cache_mutex;
@@ -211,43 +215,130 @@ void cache_init()
   pthread_mutex_init(&cache_mutex, NULL);
   // allocate cache pool
   cache_pool = malloc(MAX_CACHE_SIZE);
+  memset(cache_pool, 0, MAX_CACHE_SIZE);
 }
 
-void cache_free()
+void cache_destroy()
 {
   free(cache_pool);
   pthread_mutex_destroy(&cache_mutex);
 }
 
-// check if request is cached
+int request_is_same(http_request_t *requestA, http_request_t *requestB)
+{
+  if (requestA->method != requestB->method)
+    return 0;
+  if (strcmp(requestA->root, requestB->root) != 0)
+    return 0;
+  if (strcmp(requestA->directory, requestB->directory) != 0)
+    return 0;
+  if (strcmp(requestA->port, requestB->port) != 0)
+    return 0;
+  return 1;
+}
+
 int check_if_cached(http_request_t *request)
 {
 #ifdef DEBUG
   printf("[DEBUG] Checking if request is cached\n");
 #endif
   pthread_mutex_lock(&cache_mutex);
+
+  for (int i = 0; i < MAX_CACHE_SIZE / cache_t_size; i++)
+  {
+    cache_t *cache = cache_pool + i * cache_t_size;
+
+    if (cache->response != NULL)
+      if (request_is_same(request, &(cache->request)))
+      {
+        pthread_mutex_unlock(&cache_mutex);
+        return i;
+      }
+  }
+
   pthread_mutex_unlock(&cache_mutex);
-  return 0;
+  return -1;
 }
 
-// forward cached response to client
-void forward_cache(int connfd, http_request_t *request)
+void delete_cache(int index)
 {
-#ifdef DEBUG
-  printf("[DEBUG] Forwarding cached response\n");
-#endif
-  pthread_mutex_lock(&cache_mutex);
-  pthread_mutex_unlock(&cache_mutex);
+  cache_t *cache = cache_pool + index * cache_t_size;
+  free(cache->response);
+  cache->response = NULL;
+  cache->size = 0;
 }
 
-void cache_response(http_request_t *request)
+void new_cache(int index)
+{
+  cache_t *cache = cache_pool + index * cache_t_size;
+  cache->request = *new_request();
+  cache->response = malloc(MAX_OBJECT_SIZE);
+  cache->size = 0;
+  cache->timestamp = time(NULL);
+}
+
+int alloc_cache()
+{
+  int least_used = 0;
+  cache_t *least_used_cache;
+  for (int i = 0; i < MAX_CACHE_SIZE / cache_t_size; i++)
+  {
+    cache_t *cache = cache_pool + i * cache_t_size;
+    least_used_cache = cache_pool + least_used * cache_t_size;
+    if (cache->response == NULL)
+    {
+      new_cache(i);
+      return i;
+    }
+    if (cache->timestamp < least_used_cache->timestamp)
+    {
+      least_used = i;
+    }
+  }
+  // no available cache, delete least used cache
+  delete_cache(least_used);
+  new_cache(least_used);
+  return least_used;
+}
+
+void request_copy(http_request_t *dest, http_request_t *src)
+{
+  dest->method = src->method;
+  strcpy(dest->root, src->root);
+  strcpy(dest->directory, src->directory);
+  strcpy(dest->port, src->port);
+}
+
+int cache_response(http_request_t *request, void *response, int size)
 {
 #ifdef DEBUG
   printf("[DEBUG] Caching response\n");
 #endif
   pthread_mutex_lock(&cache_mutex);
+
+  int index = alloc_cache();
+  cache_t *cache = cache_pool + index * cache_t_size;
+  request_copy(&(cache->request), request);
+  memcpy(cache->response, response, size);
+  cache->size = size;
+  cache->timestamp = time(NULL);
+
+  pthread_mutex_unlock(&cache_mutex);
+  return 0;
+}
+
+// forward cached response to client
+void forward_cache(int connfd, int index)
+{
+#ifdef DEBUG
+  printf("[DEBUG] Forwarding cached response\n");
+#endif
+  pthread_mutex_lock(&cache_mutex);
+  cache_t *cache = cache_pool + index * cache_t_size;
+  Rio_writen(connfd, cache->response, cache->size);
   pthread_mutex_unlock(&cache_mutex);
 }
+
 #endif
 
 // forward request to server and forward response to client
@@ -283,13 +374,27 @@ void forward_request(int connfd, http_request_t *request)
 
   char *response = malloc(MAXLINE);
   int n;
+#ifdef HAS_CACHE
+  void *cache_buf = malloc(MAX_OBJECT_SIZE);
+  int cache_size = 0;
+#endif
   while ((n = Rio_readn(serverfd, response, MAXLINE)) > 0)
   {
-#ifdef HAS_CACHE
-    cache_response(cache_pool, request);
-#endif
     Rio_writen(connfd, response, n);
+#ifdef HAS_CACHE
+    cache_size += n;
+    if (cache_size < MAX_OBJECT_SIZE)
+    {
+      strcat(cache_buf, response);
+    }
+#endif
   }
+
+#ifdef HAS_CACHE
+  if (cache_size < MAX_OBJECT_SIZE)
+    cache_response(request, cache_buf, cache_size);
+  free(cache_buf);
+#endif
 
   Close(serverfd);
   free(request_line);
@@ -322,14 +427,15 @@ void *do_proxy_work(void *_connfd)
   forward_request(connfd, request);
 #else
   // // check if request is cached
-  if (check_if_cached(request))
+  int cache_index = check_if_cached(request);
+  if (cache_index != -1)
   {
     // if yes, send cached response
-    forward_cache(connfd, request);
+    forward_cache(connfd, cache_index);
   }
   else
   {
-    // if no, forward request to server
+    // if no, forward request to server (and cache it locally)
     forward_request(connfd, request);
   }
 #endif
@@ -341,7 +447,6 @@ void *do_proxy_work(void *_connfd)
 
 int main(int argc, char **argv)
 {
-  printf("%s", user_agent_hdr);
 
   // get listening port from args
   char *port;
@@ -359,6 +464,8 @@ int main(int argc, char **argv)
   cache_init();
 #endif
 
+  fprintf(stdout, "[PROXY] %s", user_agent_hdr);
+
   // setting up listening socket
   int listenfd, connfd;
   socklen_t clientlen;
@@ -373,7 +480,7 @@ int main(int argc, char **argv)
     connfd = Accept(listenfd, (SA *)&clientaddr, &clientlen);
     Getnameinfo((SA *)&clientaddr, clientlen, client_hostname,
                 MAXLINE, client_port, MAXLINE, 0);
-    printf("Connected to (%s, %s)\n", client_hostname, client_port);
+    fprintf(stdout, "[PROXY] Connected to (%s, %s)\n", client_hostname, client_port);
 
 #ifndef MULTI_CLIENT
     // do proxy work
@@ -390,7 +497,7 @@ int main(int argc, char **argv)
   }
 
 #ifdef HAS_CACHE
-  cache_free();
+  cache_destroy();
 #endif
 
   return 0;

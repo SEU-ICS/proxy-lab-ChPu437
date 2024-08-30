@@ -19,7 +19,7 @@
 #include "csapp.h"
 
 #define DEBUG
-// #define MULTI_CLIENT
+#define MULTI_CLIENT
 // #define HAS_CACHE
 
 /* Recommended max cache and object sizes */
@@ -343,6 +343,17 @@ int main(int argc, char **argv)
     // close connection
     Close(connfd);
 #else
+    // fork a child process to handle the connection
+    if (Fork() == 0)
+    {
+      // child process
+      Close(listenfd);
+      do_proxy_work(connfd);
+      Close(connfd);
+      exit(0);
+    }
+    // parent process
+    Close(connfd);
 #endif
   }
 

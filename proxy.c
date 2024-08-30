@@ -269,8 +269,14 @@ void forward_request(int connfd, http_request *request)
   free(response);
 }
 
-void do_proxy_work(int connfd)
+#ifndef MULTI_CLIENT
+void *do_proxy_work(int connfd)
 {
+#else
+void *do_proxy_work(void *_connfd)
+{
+  int connfd = (int)_connfd;
+#endif
 #ifdef DEBUG
   printf("[DEBUG] Doing proxy work\n");
 #endif
@@ -281,7 +287,7 @@ void do_proxy_work(int connfd)
   {
     // if error, free request and return
     free_request(request);
-    return;
+    return NULL;
   }
 
 #ifndef HAS_CACHE
@@ -302,6 +308,7 @@ void do_proxy_work(int connfd)
 
   // // free request
   free_request(request);
+  return NULL;
 }
 
 int main(int argc, char **argv)
@@ -343,17 +350,10 @@ int main(int argc, char **argv)
     // close connection
     Close(connfd);
 #else
-    // fork a child process to handle the connection
-    if (Fork() == 0)
-    {
-      // child process
-      Close(listenfd);
-      do_proxy_work(connfd);
-      Close(connfd);
-      exit(0);
-    }
-    // parent process
-    Close(connfd);
+    // create a new thread to handle the connection
+    pthread_t tid;
+    Pthread_create(&tid, NULL, do_proxy_work, (void *)connfd);
+    Pthread_detach(tid);
 #endif
   }
 

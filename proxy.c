@@ -255,7 +255,7 @@ void forward_request(int connfd, http_request *request)
 
   char *response = malloc(MAXLINE);
   int n;
-  while ((n = Rio_readn(serverfd, response, MAX_CACHE_SIZE)) > 0)
+  while ((n = Rio_readn(serverfd, response, MAXLINE)) > 0)
   {
 #ifdef HAS_CACHE
     cache_response(cache_pool, request);

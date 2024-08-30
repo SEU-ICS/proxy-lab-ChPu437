@@ -6,11 +6,11 @@
       [*] read and parse the HTTP request
         - [*] GET
         - [*] (opt) POST
-      [] forward the request to the end server
-      [] read the server's response
-      [] forward the response to the client
+      [*] forward the request to the end server
+      [*] read the server's response
+      [*] forward the response to the client
     Part #2:
-      [] deal with multiple connections
+      [*] deal with multiple connections
     Part #3:
       [] implement a cache
  */
@@ -20,7 +20,7 @@
 
 #define DEBUG
 #define MULTI_CLIENT
-// #define HAS_CACHE
+#define HAS_CACHE
 
 /* Recommended max cache and object sizes */
 #define MAX_CACHE_SIZE 1049000
@@ -35,14 +35,14 @@ typedef struct
   char *root;
   char *directory;
   char *port;
-} http_request;
+} http_request_t;
 
-http_request *new_request()
+http_request_t *new_request()
 {
 #ifdef DEBUG
   printf("[DEBUG] Creating new request\n");
 #endif
-  http_request *request = malloc(sizeof(http_request));
+  http_request_t *request = malloc(sizeof(http_request_t));
   request->root = malloc(MAXLINE);
   request->directory = malloc(MAXLINE);
   request->port = malloc(6);
@@ -52,7 +52,7 @@ http_request *new_request()
   return request;
 }
 
-void free_request(http_request *request)
+void free_request(http_request_t *request)
 {
 #ifdef DEBUG
   printf("[DEBUG] Freeing request\n");
@@ -63,7 +63,7 @@ void free_request(http_request *request)
 }
 
 // wait and parse incoming request
-int parse_request(int connfd, http_request *request)
+int parse_request(int connfd, http_request_t *request)
 {
   static const char *method_get = "GET";
   static const char *method_post = "POST";
@@ -197,33 +197,61 @@ int parse_request(int connfd, http_request *request)
 }
 
 #ifdef HAS_CACHE
+typedef struct
+{
+
+} cache_t;
+void *cache_pool;
+
+pthread_mutex_t cache_mutex;
+
+void cache_init()
+{
+  // initialize cache mutex
+  pthread_mutex_init(&cache_mutex, NULL);
+  // allocate cache pool
+  cache_pool = malloc(MAX_CACHE_SIZE);
+}
+
+void cache_free()
+{
+  free(cache_pool);
+  pthread_mutex_destroy(&cache_mutex);
+}
+
 // check if request is cached
-int check_if_cached(http_request *request)
+int check_if_cached(http_request_t *request)
 {
 #ifdef DEBUG
   printf("[DEBUG] Checking if request is cached\n");
 #endif
+  pthread_mutex_lock(&cache_mutex);
+  pthread_mutex_unlock(&cache_mutex);
   return 0;
 }
 
 // forward cached response to client
-void forward_cache(int connfd, http_request *request)
+void forward_cache(int connfd, http_request_t *request)
 {
 #ifdef DEBUG
   printf("[DEBUG] Forwarding cached response\n");
 #endif
+  pthread_mutex_lock(&cache_mutex);
+  pthread_mutex_unlock(&cache_mutex);
 }
 
-void cache_response(cache_pool, http_request *request)
+void cache_response(http_request_t *request)
 {
 #ifdef DEBUG
   printf("[DEBUG] Caching response\n");
 #endif
+  pthread_mutex_lock(&cache_mutex);
+  pthread_mutex_unlock(&cache_mutex);
 }
 #endif
 
 // forward request to server and forward response to client
-void forward_request(int connfd, http_request *request)
+void forward_request(int connfd, http_request_t *request)
 {
 #ifdef DEBUG
   printf("[DEBUG] Forwarding request\n");
@@ -281,7 +309,7 @@ void *do_proxy_work(void *_connfd)
   printf("[DEBUG] Doing proxy work\n");
 #endif
   // // allocate space for storing request
-  http_request *request = new_request();
+  http_request_t *request = new_request();
   // // parse incoming request
   if (parse_request(connfd, request))
   {
@@ -327,6 +355,10 @@ int main(int argc, char **argv)
     port = argv[1];
   }
 
+#ifdef HAS_CACHE
+  cache_init();
+#endif
+
   // setting up listening socket
   int listenfd, connfd;
   socklen_t clientlen;
@@ -356,6 +388,10 @@ int main(int argc, char **argv)
     Pthread_detach(tid);
 #endif
   }
+
+#ifdef HAS_CACHE
+  cache_free();
+#endif
 
   return 0;
 }

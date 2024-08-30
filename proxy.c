@@ -75,12 +75,11 @@ int parse_request(int connfd, http_request *request)
   printf("[DEBUG] Parsing request\n");
 #endif
 
-  int len;
   char buf[MAXLINE];
   rio_t rio;
 
   Rio_readinitb(&rio, connfd);
-  len = Rio_readlineb(&rio, buf, MAXLINE);
+  Rio_readlineb(&rio, buf, MAXLINE);
 
 #ifdef DEBUG
   printf("[DEBUG] Server get request: %s", buf);
@@ -241,7 +240,7 @@ void forward_request(int connfd, http_request *request)
   // NOTICE: /r/n
   char *request_line = malloc(MAXLINE);
   char *request_header = malloc(MAXLINE);
-  sprintf(request_line, "%s %s%s %s\r\n", request->method, request->directory, request->port, "HTTP/1.0");
+  sprintf(request_line, "%s %s %s\r\n", request->method, request->directory, "HTTP/1.0");
   sprintf(request_header, "Host: %s\r\n", request->root);
   Rio_writen(serverfd, request_line, strlen(request_line));
   Rio_writen(serverfd, request_header, strlen(request_header));
@@ -251,21 +250,22 @@ void forward_request(int connfd, http_request *request)
   Rio_writen(serverfd, "\r\n", strlen("\r\n"));
 
 #ifdef DEBUG
-  printf("[DEBUG] Receiving response from server\n");
+  printf("[DEBUG] Receiving response from server and sending to client\n");
 #endif
 
   char *response = malloc(MAXLINE);
-
-#ifdef DEBUG
-  printf("[DEBUG] Sending response to client\n");
-#endif
-
+  int n;
+  while ((n = Rio_readn(serverfd, response, MAX_CACHE_SIZE)) > 0)
+  {
 #ifdef HAS_CACHE
-
+    cache_response(cache_pool, request);
 #endif
+    Rio_writen(connfd, response, n);
+  }
 
   Close(serverfd);
   free(request_line);
+  free(request_header);
   free(response);
 }
 
